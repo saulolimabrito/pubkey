@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SSH_PORT="1157"
+
 if [[ $EUID -ne 0 ]]; then
   echo "Execute como root (sudo)."
   exit 1
@@ -22,6 +24,7 @@ ensure_wget() {
   if command -v wget >/dev/null 2>&1; then
     return 0
   fi
+
   echo "wget não encontrado. Instalando..."
   if [[ "$distro" == "ubuntu" ]]; then
     apt-get update -y
@@ -80,18 +83,38 @@ configure_sshd_root_key_only() {
   sed -i '/^#\?PermitRootLogin/d' "$conf"
   sed -i '/^#\?PasswordAuthentication/d' "$conf"
   sed -i '/^#\?ChallengeResponseAuthentication/d' "$conf"
+  sed -i '/^#\?KbdInteractiveAuthentication/d' "$conf"
   sed -i '/^#\?UsePAM/d' "$conf"
   sed -i '/^#\?PubkeyAuthentication/d' "$conf"
+  sed -i '/^#\?PermitEmptyPasswords/d' "$conf"
+  sed -i '/^#\?Port/d' "$conf"
 
-  cat >> "$conf" <<'EOF'
+  cat >> "$conf" <<EOFCONF
 PermitRootLogin prohibit-password
 PasswordAuthentication no
 ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
 UsePAM yes
 PermitEmptyPasswords no
 PubkeyAuthentication yes
-EOF
-  echo "Configuração root/chave aplicada no sshd_config."
+Port ${SSH_PORT}
+EOFCONF
+
+  # Em Rocky/Oracle, o instalador pode criar /etc/ssh/sshd_config.d/01-permitrootlogin.conf
+  # com PermitRootLogin yes, sobrescrevendo nosso hardening. Este arquivo garante precedência.
+  mkdir -p /etc/ssh/sshd_config.d
+  cat > /etc/ssh/sshd_config.d/99-hardening.conf <<EOFHARD
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+UsePAM yes
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+Port ${SSH_PORT}
+EOFHARD
+
+  echo "Configuração root/chave aplicada no sshd_config e 99-hardening.conf."
 }
 
 inject_root_public_key() {
@@ -116,21 +139,91 @@ inject_root_public_key() {
   echo "Chave pública injetada em $auth"
 }
 
-configure_sshd_port() {
-  local port="$1"
-  local conf="/etc/ssh/sshd_config"
-  sed -i '/^#\?Port/d' "$conf"
-  echo "Port $port" >> "$conf"
-  echo "Porta SSH configurada: $port"
+configure_selinux_ssh_port() {
+  if ! command -v getenforce >/dev/null 2>&1 || [[ "$(getenforce)" == "Disabled" ]]; then
+    echo "SELinux desativado ou não disponível."
+    return 0
+  fi
+
+  echo "SELinux ativado. Ajustando para porta ${SSH_PORT}..."
+  if ! command -v semanage >/dev/null 2>&1; then
+    echo "semanage não encontrado. Instalando policycoreutils-python-utils..."
+    if command -v dnf >/dev/null 2>&1; then
+      dnf install -y policycoreutils-python-utils
+    else
+      yum install -y policycoreutils-python-utils
+    fi
+  fi
+
+  if semanage port -l | grep -Eq "^ssh_port_t[[:space:]]+tcp[[:space:]].*\b${SSH_PORT}\b"; then
+    echo "Regra SELinux já existente para ssh_port_t porta ${SSH_PORT}."
+  else
+    semanage port -a -t ssh_port_t -p tcp "${SSH_PORT}" 2>/dev/null || semanage port -m -t ssh_port_t -p tcp "${SSH_PORT}"
+    echo "Regra SELinux aplicada para ssh_port_t porta ${SSH_PORT}."
+  fi
 }
 
-reload_sshd() {
+open_firewall_ssh_port() {
+  if command -v ufw >/dev/null 2>&1; then
+    local ufw_status
+    ufw_status="$(ufw status 2>/dev/null | head -n1 || true)"
+    if echo "$ufw_status" | grep -qi "Status: active"; then
+      ufw allow "${SSH_PORT}/tcp"
+      echo "UFW atualizado: ${SSH_PORT}/tcp liberada."
+    else
+      echo "UFW instalado, mas inativo."
+    fi
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    if firewall-cmd --state >/dev/null 2>&1; then
+      firewall-cmd --permanent --add-port="${SSH_PORT}/tcp"
+      firewall-cmd --reload
+      echo "firewalld atualizado: ${SSH_PORT}/tcp liberada."
+    else
+      echo "firewalld instalado, mas inativo."
+    fi
+  fi
+}
+
+validate_sshd_config() {
+  if sshd -t; then
+    echo "Validação sshd -t: OK"
+  else
+    echo "Erro de sintaxe no sshd_config. Restaurando backup mais recente..." >&2
+    local last_backup
+    last_backup="$(ls -1t /etc/ssh/sshd_config.bak.* 2>/dev/null | head -n1 || true)"
+    if [[ -n "$last_backup" ]]; then
+      cp -f "$last_backup" /etc/ssh/sshd_config
+      echo "Backup restaurado: $last_backup" >&2
+    fi
+    return 1
+  fi
+}
+
+restart_sshd() {
   if systemctl list-unit-files | grep -qE '^sshd\.service'; then
-    systemctl reload sshd || systemctl restart sshd
+    systemctl restart sshd
   elif systemctl list-unit-files | grep -qE '^ssh\.service'; then
-    systemctl reload ssh || systemctl restart ssh
+    systemctl restart ssh
   else
     echo "Não encontrou serviço SSH/sshd para reiniciar."
+    return 1
+  fi
+}
+
+verify_effective_hardening() {
+  local effective
+  effective="$(sshd -T 2>/dev/null || true)"
+
+  echo "$effective" | grep -q "port ${SSH_PORT}" || { echo "Porta efetiva não é ${SSH_PORT}." >&2; return 1; }
+  echo "$effective" | grep -q "passwordauthentication no" || { echo "PasswordAuthentication não está em no." >&2; return 1; }
+  echo "$effective" | grep -q "pubkeyauthentication yes" || { echo "PubkeyAuthentication não está em yes." >&2; return 1; }
+
+  if ss -tlnp | grep -qE ":${SSH_PORT}[[:space:]]"; then
+    echo "sshd escutando na porta ${SSH_PORT}."
+  else
+    echo "sshd não está escutando na porta ${SSH_PORT}." >&2
     return 1
   fi
 }
@@ -143,13 +236,12 @@ case "$distro" in
     fi
     backup_sshd_config
     configure_sshd_root_key_only
-    if ! inject_root_public_key "$SSH_KEY"; then
-      echo "Falha ao injetar chave root. Informe SSH_PUBLIC_KEY ou --key-file." >&2
-      exit 1
-    fi
-    configure_sshd_port 1157
-    reload_sshd
-    echo "Ubuntu $version configurado: SSH root/chave porta 1157."
+    inject_root_public_key "$SSH_KEY"
+    open_firewall_ssh_port
+    validate_sshd_config
+    restart_sshd
+    verify_effective_hardening
+    echo "Ubuntu $version configurado: SSH root/chave porta ${SSH_PORT}."
     ;;
 
   rocky|oracle)
@@ -159,25 +251,13 @@ case "$distro" in
     fi
     backup_sshd_config
     configure_sshd_root_key_only
-    if ! inject_root_public_key "$SSH_KEY"; then
-      echo "Falha ao injetar chave root. Informe SSH_PUBLIC_KEY ou --key-file." >&2
-      exit 1
-    fi
-    configure_sshd_port 1157
-    if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce)" != "Disabled" ]]; then
-      echo "SELinux ativado. Ajustando para porta 1157..."
-      if command -v semanage >/dev/null 2>&1; then
-        semanage port -a -t ssh_port_t -p tcp 1157 2>/dev/null || true
-        semanage port -m -t ssh_port_t -p tcp 1157
-        echo "Regra SELinux aplicada para ssh_port_t porta 1157."
-      else
-        echo "semanage não encontrado. Instale policycoreutils-python-utils e execute semanage manualmente."
-      fi
-    else
-      echo "SELinux desativado ou não disponível."
-    fi
-    reload_sshd
-    echo "$distro $version configurado: SSH root/chave porta 1157."
+    inject_root_public_key "$SSH_KEY"
+    configure_selinux_ssh_port
+    open_firewall_ssh_port
+    validate_sshd_config
+    restart_sshd
+    verify_effective_hardening
+    echo "$distro $version configurado: SSH root/chave porta ${SSH_PORT}."
     ;;
   *)
     echo "Distro não suportada. Suportado: Ubuntu 22/24, Rocky 8/9/10, Oracle 8/9/10."
@@ -185,4 +265,4 @@ case "$distro" in
     ;;
 esac
 
-echo "Concluído. Verifique /etc/ssh/sshd_config e teste SSH antes de fechar a sessão atual."
+echo "Concluído. Teste SSH na porta ${SSH_PORT} antes de fechar a sessão atual."
