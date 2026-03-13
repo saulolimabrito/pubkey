@@ -18,11 +18,34 @@ version=${VERSION_ID%%.*}
 
 echo "Distro detectada: $distro $version"
 
+ensure_wget() {
+  if command -v wget >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "wget não encontrado. Instalando..."
+  if [[ "$distro" == "ubuntu" ]]; then
+    apt-get update -y
+    apt-get install -y wget
+  elif [[ "$distro" == "rocky" || "$distro" == "oracle" ]]; then
+    if command -v dnf >/dev/null 2>&1; then
+      dnf install -y wget
+    else
+      yum install -y wget
+    fi
+  else
+    echo "Distribuição desconhecida para instalar wget. Instale manualmente." >&2
+    exit 1
+  fi
+  echo "wget instalado."
+}
+
 # chave pública fixa (injeção automática)
 SSH_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAt28s9uINW3pGQrht7LL6JaBh0PR6TzIH+g9gcd/t4vUAY5j+wbXi6F4LLsIWu/TSt+2P+HL4S5pQStZe4AkncV5KdCENNKwyyhn4raHYktiWK5F9RBDBxVmUReJFgfb2gV+3YwIARz7B+kE9SCFgHsYwelembYjOh8SIJlKMdtr8B6zDQnNZtC5JAC1joQB03btR/AKL/tch3K70eGRWq0mtcNl37g72e6GRAIiJrTY06gM3kilGYXtAPoWJouXYPX/UptFEgx6LBufLtdLzr+VWvW/T3X5hcgCTgnIf9fgoAD1hXqLKqz8+rfrKPAuuJ3oFnw/xi63/oVBjXMSSRw== saulo.b@dimenoc.com"
 if [[ -n "${SSH_PUBLIC_KEY:-}" ]]; then
   SSH_KEY="$SSH_PUBLIC_KEY"
 fi
+
+ensure_wget
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
