@@ -3,3 +3,5 @@ wget -q -O - https://raw.githubusercontent.com/saulolimabrito/pubkey/main/pub | 
 
 
 hardening: wget -qO- https://raw.githubusercontent.com/saulolimabrito/pubkey/main/ssh_hardening.sh | bash
+
+curl -s https://raw.githubusercontent.com/saulolimabrito/pubkey/main/ssh_hardening.sh | bash
