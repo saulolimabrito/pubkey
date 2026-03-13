@@ -202,15 +202,14 @@ validate_sshd_config() {
 }
 
 restart_sshd() {
+  local i
+
   if command -v systemctl >/dev/null 2>&1; then
-    if systemctl cat sshd >/dev/null 2>&1 || systemctl status sshd >/dev/null 2>&1; then
-      systemctl restart sshd
-      return 0
-    fi
-    if systemctl cat ssh >/dev/null 2>&1 || systemctl status ssh >/dev/null 2>&1; then
-      systemctl restart ssh
-      return 0
-    fi
+    for i in 1 2 3; do
+      systemctl restart sshd >/dev/null 2>&1 && return 0
+      systemctl restart ssh >/dev/null 2>&1 && return 0
+      sleep 1
+    done
   fi
 
   if command -v service >/dev/null 2>&1; then
@@ -218,7 +217,7 @@ restart_sshd() {
     service ssh restart >/dev/null 2>&1 && return 0
   fi
 
-  echo "Não encontrou serviço SSH/sshd para reiniciar."
+  echo "Não conseguiu reiniciar SSH (tentou: systemctl sshd/ssh e service sshd/ssh)." >&2
   return 1
 }
 
