@@ -202,14 +202,24 @@ validate_sshd_config() {
 }
 
 restart_sshd() {
-  if systemctl list-unit-files | grep -qE '^sshd\.service'; then
-    systemctl restart sshd
-  elif systemctl list-unit-files | grep -qE '^ssh\.service'; then
-    systemctl restart ssh
-  else
-    echo "Não encontrou serviço SSH/sshd para reiniciar."
-    return 1
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl cat sshd >/dev/null 2>&1 || systemctl status sshd >/dev/null 2>&1; then
+      systemctl restart sshd
+      return 0
+    fi
+    if systemctl cat ssh >/dev/null 2>&1 || systemctl status ssh >/dev/null 2>&1; then
+      systemctl restart ssh
+      return 0
+    fi
   fi
+
+  if command -v service >/dev/null 2>&1; then
+    service sshd restart >/dev/null 2>&1 && return 0
+    service ssh restart >/dev/null 2>&1 && return 0
+  fi
+
+  echo "Não encontrou serviço SSH/sshd para reiniciar."
+  return 1
 }
 
 verify_effective_hardening() {
