@@ -1,0 +1,4 @@
+Hostname: homesecurity
+Model: srx300
+Junos: 15.1X49-D150.2
+JUNOS Software Release [15.1X49-D150.2]

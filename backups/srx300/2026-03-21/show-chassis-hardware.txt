@@ -1,0 +1,7 @@
+Hardware inventory:
+Item             Version  Part number  Serial number     Description
+Chassis                                CV1519AN0561      SRX300
+Routing Engine   REV 0x13 650-065039   CV1519AN0561      RE-SRX300
+FPC 0                                                    FPC
+  PIC 0                                                  6xGE,2xGE SFP Base PIC
+Power Supply 0  

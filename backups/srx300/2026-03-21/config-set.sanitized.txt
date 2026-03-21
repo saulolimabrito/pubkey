@@ -1,0 +1,109 @@
+set version 15.1X49-D150.2
+set system host-name homesecurity
+set system time-zone GMT-3
+set system root-authentication encrypted-password "<REDACTED>"
+set system name-server 1.1.1.1
+set system name-server 9.9.9.9
+set system name-server 8.8.8.8
+set system name-server 8.8.4.4
+set system name-resolution no-resolve-on-input
+set system login user cfgadmin uid 2001
+set system login user cfgadmin class super-user
+set system login user cfgadmin authentication ssh-rsa "<REDACTED>"
+set system services ssh no-passwords
+set system services xnm-clear-text
+set system services dhcp-local-server group desktop interface ge-0/0/2.0
+set system services dhcp-local-server group wifi interface ge-0/0/3.0
+set system services web-management https system-generated-certificate
+set system services web-management session idle-timeout 60
+set system syslog archive size 100k
+set system syslog archive files 3
+set system syslog user * any emergency
+set system syslog file messages any notice
+set system syslog file messages authorization info
+set system syslog file interactive-commands interactive-commands any
+set system max-configurations-on-flash 5
+set system max-configuration-rollbacks 5
+set system license autoupdate url https://ae1.juniper.net/junos/key_retrieval
+set system ntp server us.ntp.pool.org
+set services rpm probe WAN-PROBE test ISP0 probe-type icmp-ping
+set services rpm probe WAN-PROBE test ISP0 target address 8.8.8.8
+set services rpm probe WAN-PROBE test ISP0 probe-count 5
+set services rpm probe WAN-PROBE test ISP0 probe-interval 3
+set services rpm probe WAN-PROBE test ISP0 test-interval 10
+set services rpm probe WAN-PROBE test ISP0 thresholds successive-loss 3
+set services rpm probe WAN-PROBE test ISP0 destination-interface ge-0/0/0.0
+set services ip-monitoring policy WAN-FAILOVER match rpm-probe WAN-PROBE
+set services ip-monitoring policy WAN-FAILOVER then preferred-route route 0.0.0.0/0 next-hop 100.68.224.1
+set services ip-monitoring policy WAN-FAILOVER then preferred-route route 0.0.0.0/0 preferred-metric 1
+set security log mode stream
+set security log report
+set security screen ids-option untrust-screen icmp ping-death
+set security screen ids-option untrust-screen ip source-route-option
+set security screen ids-option untrust-screen ip tear-drop
+set security screen ids-option untrust-screen tcp syn-flood alarm-threshold 1024
+set security screen ids-option untrust-screen tcp syn-flood attack-threshold 200
+set security screen ids-option untrust-screen tcp syn-flood source-threshold 1024
+set security screen ids-option untrust-screen tcp syn-flood destination-threshold 2048
+set security screen ids-option untrust-screen tcp syn-flood timeout 20
+set security screen ids-option untrust-screen tcp land
+set security nat source rule-set desktop_srcnat from zone desktop
+set security nat source rule-set desktop_srcnat to zone Internet
+set security nat source rule-set desktop_srcnat rule desktop-snat match source-address 10.60.254.0/24
+set security nat source rule-set desktop_srcnat rule desktop-snat match destination-address 0.0.0.0/0
+set security nat source rule-set desktop_srcnat rule desktop-snat then source-nat interface
+set security nat source rule-set wifi_srcnat from zone wifi
+set security nat source rule-set wifi_srcnat to zone Internet
+set security nat source rule-set wifi_srcnat rule wifi-snat match source-address 172.16.254.0/24
+set security nat source rule-set wifi_srcnat rule wifi-snat match destination-address 0.0.0.0/0
+set security nat source rule-set wifi_srcnat rule wifi-snat then source-nat interface
+set security policies from-zone desktop to-zone Internet policy All_desktop_Internet match source-address any
+set security policies from-zone desktop to-zone Internet policy All_desktop_Internet match destination-address any
+set security policies from-zone desktop to-zone Internet policy All_desktop_Internet match application any
+set security policies from-zone desktop to-zone Internet policy All_desktop_Internet then permit
+set security policies from-zone wifi to-zone Internet policy All_wifi_Internet match source-address any
+set security policies from-zone wifi to-zone Internet policy All_wifi_Internet match destination-address any
+set security policies from-zone wifi to-zone Internet policy All_wifi_Internet match application any
+set security policies from-zone wifi to-zone Internet policy All_wifi_Internet then permit
+set security policies from-zone desktop to-zone wifi policy All_desktop_wifi match source-address any
+set security policies from-zone desktop to-zone wifi policy All_desktop_wifi match destination-address any
+set security policies from-zone desktop to-zone wifi policy All_desktop_wifi match application any
+set security policies from-zone desktop to-zone wifi policy All_desktop_wifi then permit
+set security policies from-zone wifi to-zone desktop policy All_desktop_wifi match source-address any
+set security policies from-zone wifi to-zone desktop policy All_desktop_wifi match destination-address any
+set security policies from-zone wifi to-zone desktop policy All_desktop_wifi match application any
+set security policies from-zone wifi to-zone desktop policy All_desktop_wifi then permit
+set security zones security-zone desktop interfaces ge-0/0/2.0 host-inbound-traffic system-services ping
+set security zones security-zone desktop interfaces ge-0/0/2.0 host-inbound-traffic system-services dhcp
+set security zones security-zone desktop interfaces ge-0/0/2.0 host-inbound-traffic system-services https
+set security zones security-zone desktop interfaces ge-0/0/2.0 host-inbound-traffic system-services ssh
+set security zones security-zone wifi interfaces ge-0/0/3.0 host-inbound-traffic system-services ping
+set security zones security-zone wifi interfaces ge-0/0/3.0 host-inbound-traffic system-services dhcp
+set security zones security-zone wifi interfaces ge-0/0/3.0 host-inbound-traffic system-services ssh
+set security zones security-zone Internet interfaces ge-0/0/0.0 host-inbound-traffic system-services ping
+set security zones security-zone Internet interfaces ge-0/0/0.0 host-inbound-traffic system-services dhcp
+set security zones security-zone Internet interfaces ge-0/0/1.0 host-inbound-traffic system-services dhcp
+set security zones security-zone Internet interfaces ge-0/0/1.0 host-inbound-traffic system-services ping
+set interfaces ge-0/0/0 unit 0 family inet dhcp-client update-server
+set interfaces ge-0/0/1 unit 0 family inet dhcp-client update-server
+set interfaces ge-0/0/2 unit 0 family inet address 10.60.254.1/24
+set interfaces ge-0/0/3 unit 0 family inet address 172.16.254.1/24
+set routing-options static route 0.0.0.0/0 next-hop 192.168.15.1
+set routing-options static route 0.0.0.0/0 qualified-next-hop 100.68.224.1 preference 25
+set routing-options static route 0.0.0.0/0 preference 5
+set protocols l2-learning global-mode switching
+set protocols rstp interface all
+set access address-assignment pool desktop family inet network 10.60.254.0/24
+set access address-assignment pool desktop family inet range 10 low 10.60.254.10
+set access address-assignment pool desktop family inet range 10 high 10.60.254.254
+set access address-assignment pool desktop family inet dhcp-attributes name-server 1.1.1.1
+set access address-assignment pool desktop family inet dhcp-attributes name-server 9.9.9.9
+set access address-assignment pool desktop family inet dhcp-attributes router 10.60.254.1
+set access address-assignment pool wifi family inet network 172.16.254.0/24
+set access address-assignment pool wifi family inet range 10 low 172.16.254.10
+set access address-assignment pool wifi family inet range 10 high 172.16.254.254
+set access address-assignment pool wifi family inet dhcp-attributes name-server 1.1.1.1
+set access address-assignment pool wifi family inet dhcp-attributes name-server 9.9.9.9
+set access address-assignment pool wifi family inet dhcp-attributes router 172.16.254.1
+set access address-assignment pool wifi family inet host ap-wifi hardware-address d8:44:89:13:c3:25
+set access address-assignment pool wifi family inet host ap-wifi ip-address 172.16.254.10
